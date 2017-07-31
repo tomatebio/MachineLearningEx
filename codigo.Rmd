@@ -1,0 +1,169 @@
+---
+title: "Mahine Learning"
+author: "carlos"
+date: "July 28, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Overview
+
+Here I will build a model that can predict if a user is doing the exercise very well. The data is a collection of volunters that did exercise using SmartDevices with acceletometers. The original project is in   http://groupware.les.inf.puc-rio.br/har
+
+## Get the data and look the variables
+
+The data set is really big more than 160 colluns and almost 20 k lines. My first step was cleanning that that are not helpfull as variable that have near zero variance an a lot of NAs. Also I clean variables that are higly correlated. At the end 150 variables are throw away. The final data set consist in just 9 predictors 
+
+```{r cars}
+require(caret)
+fullData<-read.csv("pml-training.csv")
+
+# check variables that will not help (near zero variance) and removing
+
+nzv <- nearZeroVar(fullData)
+filteredData<-fullData[,-nzv]
+
+
+# Check NAs 
+Nas<-colSums(is.na(filteredData))
+# exclude all variables vith NAs 
+filteredNoNa<-filteredData[,Nas<1]
+
+## Correlated Variables
+descr<-cov(filteredNoNa[,-c(2,5,59)])
+
+highlyCorDescr <- findCorrelation(descr, cutoff = .75)
+finalFF<-filteredNoNa[,-highlyCorDescr]
+```
+
+#Split data
+  I split data in training and "validating" data to mesure the performance. I call "validating" to make clear that is not the "test data" that the exercise asking for. 
+
+```{r}
+ToTrain<-createDataPartition(finalFF$classe, p=0.6,list = F)
+training<-finalFF[ToTrain,]
+validating<-finalFF[-ToTrain,]
+
+```
+
+#Buliding the models
+
+A built models using a repeated cross validantion procedure in 10 fold way. I build the following models
+1-  *rf* random florest 
+2-  *tb* treebag, a bagged CART
+3 - *cart* Classification and Regression Trees
+4 - *svm* Support Vector machines
+
+Because those models take a long time to process I use a parallel approach (this takes ~1h)
+```{r, cache= TRUE}
+fitControl <- trainControl(## 10-fold CV
+                           method = "repeatedcv",
+                           number = 10,
+                           ## repeated ten times
+                           repeats = 10
+                           )
+
+library(doMC)
+registerDoMC(cores = 7)
+
+
+model_rf<-train(classe~., data=training,
+                method="rf",
+                trControl = fitControl 
+               )
+model_tb<-train(classe~., data=training,
+                method="treebag",
+                trControl = fitControl 
+               )
+
+model_cart<-train(classe~., data=training,
+                  method="rpart",
+                  trControl = fitControl 
+                )
+
+model_svm <- train(classe~., data=training,
+                   method="svmRadial",
+                   trControl = fitControl 
+                )
+
+```
+
+#In sample error and performance
+
+To estimate In sample error and the performance of models I used resamples function
+```{r}
+
+resamps <- resamples(list(RF = model_rf,
+                          tb = model_tb,
+                          svm= model_svm,
+                          cart= model_cart
+                          ))
+summary(resamps)
+
+theme1 <- trellis.par.get()
+theme1$plot.symbol$col = rgb(.2, .2, .2, .4)
+theme1$plot.symbol$pch = 16
+theme1$plot.line$col = rgb(1, 0, 0, .7)
+theme1$plot.line$lwd <- 2
+trellis.par.set(theme1)
+bwplot(resamps, layout = c(3, 1))
+
+```
+
+The performance was good for marjory of models. In order to improve the performance I build a final model stacking all models
+
+
+```{r}
+preds_train = cbind(rf=predict(model_rf, training), 
+                    tb=predict(model_tb, training),
+                    svm=predict(model_svm,training))
+
+training2 = cbind(training, preds_train)
+
+rf_stack = train(classe ~., data = training2, method = "rf")
+
+
+
+  
+```
+
+# Validation (Out Sample error)
+To validate the models and see Out sample error I use the models to predict a new dataset and check the accuracy of them  
+```{r}
+prediction_rf<-predict(model_rf, validating)
+prediction_tb<-predict(model_tb, validating)
+prediction_svm<-predict(model_svm,validating)
+prediction_cart<-predict(model_cart,validating)
+
+prediction_rf_stack<-predict(rf_stack, cbind(validating,rf=unclass(prediction_rf),
+                                             tb=unclass(prediction_tb),svm=unclass(prediction_svm)))
+
+
+
+
+c_rf<-confusionMatrix(prediction_rf,validating$classe)
+c_tb<-confusionMatrix(prediction_tb,validating$classe)
+c_svm<-confusionMatrix(prediction_svm,validating$classe)
+c_cart<-confusionMatrix(prediction_cart,validating$classe)
+c_stack<-confusionMatrix(prediction_rf_stack,validating$classe)
+
+accu<-t(data.frame(rf=c_rf$overall,
+           tb=c_tb$overall,
+           svm=c_svm$overall,
+           cart=c_cart$overall,
+           stack=c_stack$overall))
+accu
+```
+
+# Answer the quizz
+
+Finaly to answer the quizz I imported the 20 test cases and make a prediction using the final model
+
+```{r}
+cases<-read.csv("pml-testing.csv")
+predict(model_rf,cases)
+```
+
