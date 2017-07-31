@@ -52,10 +52,10 @@ validating<-finalFF[-ToTrain,]
 #Buliding the models
 
 A built models using a repeated cross validantion procedure in 10 fold way. I build the following models
-1-  *rf* random florest 
-2-  *tb* treebag, a bagged CART
-3 - *cart* Classification and Regression Trees
-4 - *svm* Support Vector machines
+1. *rf* random florest 
+2.  *tb* treebag, a bagged CART
+3. *cart* Classification and Regression Trees
+4. *svm* Support Vector machines
 
 Because those models take a long time to process I use a parallel approach (this takes ~1h)
 ```{r, cache= TRUE}
